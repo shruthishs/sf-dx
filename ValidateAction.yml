@@ -1,0 +1,96 @@
+name: Validate PR files
+
+on:
+  workflow_call:
+    inputs:
+      target_branch:
+        description: "Default branch to checkout during delete"
+        required: true
+        type: string
+      test_level_run:
+        description: "Decides what level of test run against the given environment"
+        required: true
+        type: string
+    secrets:
+      default_username:
+        description: "Default username to be used to authenticate against the target org(sandbox/prod)"
+        required: true
+      login_credentials:
+        description: "Login credential used to authenticate against the target org(sandbox/prod)"
+        required: true
+
+jobs:
+  Validate:
+    runs-on: ubuntu-latest
+    steps:
+      # Install Salesforce CLI
+      - name: "Install Salesforce CLI"
+        run: |
+          wget https://developer.salesforce.com/media/salesforce-cli/sfdx/channels/stable/sfdx-linux-x64.tar.xz
+          mkdir ~/sfdx
+          tar xJf sfdx-linux-x64.tar.xz -C ~/sfdx --strip-components 1
+          echo "$HOME/sfdx/bin" >> $GITHUB_PATH
+          ~/sfdx/bin/sfdx version
+
+      # Checkout the source code
+      - name: "Checkout source code"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # Store secret for sandbox/prod Org
+      - name: "Populate auth file with secret"
+        shell: bash
+        run: echo ${{ secrets.login_credentials }} > ./sandbox.txt
+
+      # Authenticate sandbox Org
+      - name: "Authenticate Sandbox Org"
+        run: sfdx auth:sfdxurl:store -f ./sandbox.txt
+
+      # Set default username to be used when validating/deploying
+      - name: "Set Default UserName"
+        run: sfdx config:set defaultusername=${{ secrets.default_username }}
+
+      # Add files into a string with comma separation included
+      - name: Check Files in PR
+        uses: actions/github-script@v6
+        id: checkFiles
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          result-encoding: string
+          script: |
+            const result = await github.rest.pulls.listFiles({
+              pull_number: context.payload.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: "100",
+            });
+            var addModifiedFile = "";
+            var deleteFile = "";
+            var finalString = "";
+            var fileExt = ['yml', 'md', 'CODEOWNERS'];
+            for(let file of result.data) {
+              if(!fileExt.some(r=> file.filename.endsWith(r))){
+                let fileName = file.filename.replaceAll(/[$]/g, '\\$');
+                if(file.status == "removed"){
+                    deleteFile = deleteFile.length == 0 ? fileName : deleteFile.concat(',',fileName);
+                }
+                else{
+                    addModifiedFile = addModifiedFile.length == 0 ? fileName : addModifiedFile.concat(',',fileName);
+                }
+              }
+            }
+            finalString = addModifiedFile.concat(';',deleteFile);
+            return finalString
+
+      # Validate source on sandbox/prod
+      - name: "Validate Added/Modified/Deleted files on destination org"
+        run: |
+          IFS=';' read -ra arrIN <<< "${{steps.checkFiles.outputs.result}}"
+          if [ ! -z "${arrIN[0]}" ]; then
+             sfdx force:source:deploy -p "${arrIN[0]}" --checkonly --testlevel ${{ inputs.test_level_run }} --verbose
+          fi
+          if [ ! -z "${arrIN[1]}" ]; then
+             git switch ${{ inputs.target_branch }}
+             sfdx force:source:delete -p "${arrIN[1]}" --checkonly --testlevel ${{ inputs.test_level_run }} --noprompt --verbose
+          fi
