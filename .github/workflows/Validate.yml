@@ -1,0 +1,53 @@
+name: Validate metadata
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [sandbox/idmQA,sandbox/idmDev,sandbox/rfppsit,sandbox/rfppdev,sandbox/rfpptest,Production]
+
+jobs:
+  read-body:
+    runs-on: ubuntu-latest
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v2
+        
+        - name: Read pull request body
+          run: echo "${{ github.event.pull_request.body }}"
+          
+  ValidateOnIDMQA:
+    uses: sede-x/Retail-SF-Org/.github/workflows/ValidateAction.yml@switchtodx
+    if: github.base_ref == 'sandbox/idmQA'
+    with:
+      target_branch: ${{ github.base_ref }}
+      test_level_run: NoTestRun
+    secrets:
+      default_username: ${{ secrets.SFDX_IDMQA_USERNAME }}
+      login_credentials: ${{ secrets.SFDX_IDMQA_AUTH_URL }}
+  ValidateOnRFPPTest:
+    uses: sede-x/Retail-SF-Org/.github/workflows/ValidateAction.yml@switchtodx
+    if: github.base_ref == 'sandbox/rfpptest'
+    with:
+      target_branch: ${{ github.base_ref }}
+      test_level_run: NoTestRun
+    secrets:
+      default_username: ${{ secrets.SFDX_RFPPTEST_USERNAME }}
+      login_credentials: ${{ secrets.SFDX_RFPPTEST_AUTH_URL }}
+  ValidateOnrfppsit:
+    uses: sede-x/Retail-SF-Org/.github/workflows/ValidateAction.yml@switchtodx
+    if: github.base_ref == 'sandbox/rfppsit'
+    with:
+      target_branch: ${{ github.base_ref }}
+      test_level_run: RunLocalTests
+    secrets:
+      default_username: ${{ secrets.SFDX_RFPPSIT_USERNAME }}
+      login_credentials: ${{ secrets.SFDX_RFPPSIT_AUTH_URL }}
+  ValidateOnProduction:
+    uses: sede-x/Retail-SF-Org/.github/workflows/ValidateAction.yml@switchtodx
+    if: github.base_ref == 'Production'
+    with:
+      target_branch: ${{ github.base_ref }}
+      test_level_run: RunLocalTests
+    secrets:
+      default_username: ${{ secrets.SFDX_PROD_USERNAME }}
+      login_credentials: ${{ secrets.SFDX_PROD_AUTH_URL }}
